@@ -1,0 +1,15 @@
+[Unit]
+Description=Template service component
+After=dbus.service
+Requires=dbus.service
+
+[Service]
+Type=dbus
+BusName=com.templated.Template
+ExecStart=/usr/bin/templated /etc/rouge-access-point/components/templated.ini
+Restart=on-failure
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
