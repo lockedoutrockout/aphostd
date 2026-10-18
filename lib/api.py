@@ -32,17 +32,23 @@ INTERFACE_XML = """
         <method name="UnblockStation">
             <arg type="s" name="mac_addr" direction="in"/>
         </method>
+        <method name="EventScriptCallback">
+            <arg type="s" name="event_type" direction="in"/>
+            <arg type="s" name="mac_addr" direction="in"/>
+        </method>
 
         <!-- Properties -->
         <!-- Read Only -->
         <property name="State" type="s" access="read"/>
         <property name="Stations" type="a" access="read"/>
+        <property name="Blocklist" type="a" access="read"/>
         <!-- Read/Write -->
         <property name="SSID" type="s" access="readwrite"/>
         <property name="Band" type="s" access="readwrite"/>
         <property name="Channel" type="i" access="readwrite"/>
         <property name="Security" type="s" access="readwrite"/>
         <property name="Passphrase" type="s" access="readwrite"/>
+        <property name="Hidden" type="b" access="readwrite"/>
 
         <!-- Signals -->
         <signal name="StateChanged">
@@ -59,7 +65,7 @@ INTERFACE_XML = """
             <arg type="a{sv}" name="new_configuration"/>
         </signal>
         <signal name="StationEvent">
-            <arg type="s" name="type"/>
+            <arg type="s" name="event_type"/>
             <arg type="s" name="mac_addr"/>
         </signal>
     </interface>
@@ -152,6 +158,18 @@ class APHostService(datatypes.Template):
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to UnblockStation: {err_msg}")
 
+    def EventScriptCallback(self, event_type, mac_addr):
+        """ Callback method for receiving hostapd events from hostapd_cli via the
+        event script
+        """
+        self.logger.info(f"DBus API got call to EventScriptPipe with arguments: {event_type}, {mac_addr}")
+        try:
+            self._EventScriptCallback(event_type, mac_addr)
+        except Exception as err_msg:
+            self.logger.error(f"DBus API encountered an exception during call to EventScriptCallback: {err_msg}")
+        return None
+        
+
     # Properties
     # Read Only
     @property
@@ -231,6 +249,20 @@ class APHostService(datatypes.Template):
             self.ConfigurationChanged("Passphrase", _old, self._settings["Passphrase"])
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Passphrase from: {_old} to: {value}")
+
+    @property
+    def Hidden(self):
+        return self.settings["Hidden"]
+    @Hidden.setter
+    def Hidden(self, value):
+        self.logger.info(f"Readwrite property Hidden set to {value} from {self._settings["Hidden"]}")
+        _old = self._settings["Hidden"]
+        try:
+            self._settings["Hidden"] = value
+            self.ConfigurationChanged("Hidden", _old, self._settings["Hidden"])
+        except Exception as err_msg:
+            self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Hidden from: {_old} to: {value}")
+
 
 def init_dbus_api(name=BUS_NAME, path=OBJECT_PATH, xml=INTERFACE_XML):
     """ Launch the DBus interface
