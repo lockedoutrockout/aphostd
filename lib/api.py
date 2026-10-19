@@ -6,15 +6,15 @@ Contains the DBus interface
 
 import os
 import sys
-import subprocess
-import threading
 import logging
 import configparser
 from pydbus import SystemBus
 from pydbus.generic import signal
 from gi.repository import GLib
-from . import datatypes
-from . import exceptions
+from . import (
+    datatypes,
+    exceptions
+)
 
 BUS_NAME = "com.aphostd.APHost"
 OBJECT_PATH = "/com/aphostd/APHost"
@@ -33,15 +33,15 @@ INTERFACE_XML = """
             <arg type="s" name="mac_addr" direction="in"/>
         </method>
         <method name="EventScriptCallback">
-            <arg type="s" name="event_type" direction="in"/>
-            <arg type="s" name="mac_addr" direction="in"/>
+            <arg type="s" name="interface" direction="in"/>
+            <arg type="s" name="payload" direction="in"/>
         </method>
 
         <!-- Properties -->
         <!-- Read Only -->
         <property name="State" type="s" access="read"/>
-        <property name="Stations" type="a" access="read"/>
-        <property name="Blocklist" type="a" access="read"/>
+        <property name="Stations" type="as" access="read"/>
+        <property name="Blocklist" type="as" access="read"/>
         <!-- Read/Write -->
         <property name="SSID" type="s" access="readwrite"/>
         <property name="Band" type="s" access="readwrite"/>
@@ -68,11 +68,14 @@ INTERFACE_XML = """
             <arg type="s" name="event_type"/>
             <arg type="s" name="mac_addr"/>
         </signal>
+        <signal name="SubsystemEvent">
+            <arg type="s" name="event_type"/>
+        </signal>
     </interface>
 </node>
 """
 
-class APHostService(datatypes.Template):
+class APHostService(datatypes.APHost):
     """ DBus interface object
     """
 
@@ -81,6 +84,7 @@ class APHostService(datatypes.Template):
     ConfigurationChanged = signal()
     ConfigurationApplied = signal()
     StationEvent = signal()
+    SubsystemEvent = signal()
 
     def __init__(self):
         self.version = "0.1"
@@ -144,7 +148,7 @@ class APHostService(datatypes.Template):
         self.logger.info(f"DBus API got call to BlockStation with arguments: {mac_addr}")
         try:
             self._BlockStation(mac_addr)
-            self.StationEvent("station_blocked", mac_addr)
+            self.StationEvent("station-blocked", mac_addr)
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to BlockStation: {err_msg}")
 
@@ -154,17 +158,30 @@ class APHostService(datatypes.Template):
         self.logger.info(f"DBus API got call to UnblockStation with arguments: {mac_addr}")
         try:
             self._UnblockStation(mac_addr)
-            self.StationEvent("station_unblocked", mac_addr)
+            self.StationEvent("station-unblocked", mac_addr)
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to UnblockStation: {err_msg}")
 
-    def EventScriptCallback(self, event_type, mac_addr):
+    def EventScriptCallback(self, interface, event, mac_addr):
         """ Callback method for receiving hostapd events from hostapd_cli via the
         event script
         """
-        self.logger.info(f"DBus API got call to EventScriptPipe with arguments: {event_type}, {mac_addr}")
+        self.logger.info(f"DBus API got call to EventScriptPipe with arguments: {interface}, {event}, {mac_addr}")
         try:
-            self._EventScriptCallback(event_type, mac_addr)
+            is_noteworthy, event_info = self._EventScriptCallback(interface, event, mac_addr)
+            if is_noteworthy:
+                if event_info[0] in (
+                    "new-station-connected",
+                    "known-station-connected",
+                    "new-station-disconnected",
+                    "known-station-disconnected"
+                ):
+                    self.StationEvent(event_info[0], event_info[1])
+                elif event_info[0] in (
+                    "hostapd-reloaded"
+                ):
+                    self.SubsystemEvent(event_info[0])
+                    
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to EventScriptCallback: {err_msg}")
         return None
@@ -264,10 +281,12 @@ class APHostService(datatypes.Template):
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Hidden from: {_old} to: {value}")
 
 
-def init_dbus_api(name=BUS_NAME, path=OBJECT_PATH, xml=INTERFACE_XML):
+def init_dbus_api(name=BUS_NAME, path=OBJECT_PATH, xml=INTERFACE_XML, logger=None):
     """ Launch the DBus interface
     """
+    if logger:
+        logger.info(f"Bringing up DBus API. Interface: {name} Path: {path}")
     bus = SystemBus()
-    bus.publish(name, (path, TemplateService(), xml))
+    bus.publish(name, (path, APHostService(), xml))
     GLib.MainLoop().run()
     return None

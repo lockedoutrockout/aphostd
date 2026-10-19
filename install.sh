@@ -8,14 +8,12 @@
 # Windows? Not supported.                                                                   #
 #############################################################################################
 
-APP_NAME="aphostd"
-SOURCE_DIR="/usr/lib/rouge-access-point/components/ap-host"
-CONFIG_DIR="/etc/rouge-access-point/config/components/ap-host"
-RSC_DIR="/etc/rouge-access-point/rsc/components/ap-host"
-SYSTEMD_UNIT_TARGET="/etc/systemd/system/${APP_NAME}.service"
+SOURCE_DIR="/usr/lib/aphostd"
+CONFIG_DIR="/etc/aphostd/config"
+RSC_DIR="/etc/aphostd/rsc"
+SYSTEMD_UNIT_TARGET="/etc/systemd/system/aphostd.service"
 SECURITY_POLICY_TARGET="/usr/share/dbus-1/system.d/org.aphostd.APHost.conf"
-BIN_TARGET="/usr/bin/${APP_NAME}"
-CLIENT_TARGET="/usr/bin/aphostctl"
+BIN_TARGET="/usr/bin/aphostd"
 
 # Make sure running as root
 if [[ "$EUID" -ne 0 ]]; then
@@ -40,13 +38,13 @@ exec /usr/bin/env python3 ${SOURCE_DIR}/aphostd.py "\$@"
 EOF
 chmod +x "${BIN_TARGET}"
 
-# Copy the client script
-cp aphostctl.py "${CLIENT_TARGET}"
-chmod +x "${CLIENT_TARGET}"
-
 # Move the configuration file
 echo "Copying configuration file..."
 cp config/aphostd.ini "${CONFIG_DIR}"
+
+# Copy the event handler script
+cp rsc/event-script.sh "${RSC_DIR}"
+chmod +x "${RSC_DIR}/event-script.sh"
 
 # Set up the DBus interface
 echo "Copying DBus interface definition and security policy..."

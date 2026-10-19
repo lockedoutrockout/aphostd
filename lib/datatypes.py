@@ -16,16 +16,6 @@ class APHost(object):
     """ APHost backend
     """
     def __init__(self, config=None, logger=None):
-        def _event_monitor(self):
-            """ Event monitor thread
-            """
-            subprocess.call([
-                "hostapd_cli",
-                "-a",
-                self.config["HOSTAPD"]["event_script"]
-            ])
-            return None
-            
         self.config = config
         self.logger = logger
         self.process = None
@@ -40,7 +30,6 @@ class APHost(object):
             "Passphrase": self.config["AP"]["passphrase"],
             "Hidden": bool(self.config["AP"]["hidden"])
         }
-        threading.Thread(target=self._event_monitor, daemon=True).start()
 
     def _gen_hostapd_config(self, outfile):
         """ Generate the hostapd configuration file
@@ -80,6 +69,7 @@ class APHost(object):
                 f"rsn_pairwise=CCMP",
                 f"wpa_passphrase={self.settings['Passphrase']}"
             ]:
+                settings.append(setting)
         elif self.settings["Security"] == "wpa3-personal":
             for setting in [
                 f"ieee80211w=2",
@@ -119,6 +109,16 @@ class APHost(object):
     def _Start(self):
         """ Start the process
         """
+        def _event_monitor(config):
+            """ Event monitor thread
+            """
+            subprocess.call([
+                "hostapd_cli",
+                "-a",
+                config["HOSTAPD"]["event_script"]
+            ])
+            return None
+        
         if self.state == "running":
             raise exceptions.StateChangeError(f"Process is already running")
         try:
@@ -133,6 +133,7 @@ class APHost(object):
                 text=True,
                 bufsize=1
             )
+            threading.Thread(target=_event_monitor, args=(self.config,), daemon=True).start()
         except Exception as err_msg:
             raise err_msg
         self.state = "running"
@@ -171,6 +172,8 @@ class APHost(object):
         """ Apply new configuration settings
         """
         self.settings = self._settings
+        self._gen_hostapd_config(self.config["HOSTAPD"]["config_file"])
+        self._reload_hostapd()
         return None
 
     def _BlockStation(self, mac_addr):
@@ -199,7 +202,22 @@ class APHost(object):
             raise err_msg
         return None
 
-    def _EventScriptCallback(self, event_type, mac_addr):
+    def _EventScriptCallback(self, interface, event, mac_addr):
         """ Process hostapd events received through the event script
         """
-        if 
+        if event == "AP-STA-CONNECTED":
+            if mac_addr not in self.stations:
+                self.stations.append(mac_addr)
+                return (True, ("new-station-connected", mac_addr))
+            else:
+                return (True, ("known-station-connected", mac_addr))
+        elif event == "AP-STA-DISCONNECTED":
+            if mac_addr not in self.stations:
+                self.stations.append(mac_addr)
+                return (True, ("new-station-disconnected", mac_addr))
+            else:
+                return (True, ("known-station-disconnected", mac_addr))
+        elif event == "SIGHUP":
+            return (True, ("hostapd-reloaded", None))
+        else:
+            return (False, (None, None))

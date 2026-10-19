@@ -1,12 +1,12 @@
 [Unit]
-Description=Template service component
+Description=AP host daemon
 After=dbus.service
 Requires=dbus.service
 
 [Service]
 Type=dbus
-BusName=com.templated.Template
-ExecStart=/usr/bin/templated /etc/rouge-access-point/components/templated.ini
+BusName=com.aphostd.APHost
+ExecStart=/usr/bin/aphostd /etc/aphostd/config/aphostd.ini
 Restart=on-failure
 User=root
 Group=root

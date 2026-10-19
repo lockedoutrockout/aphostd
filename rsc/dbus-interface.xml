@@ -11,17 +11,24 @@
         <method name="UnblockStation">
             <arg type="s" name="mac_addr" direction="in"/>
         </method>
+        <method name="EventScriptCallback">
+            <arg type="s" name="interface" direction="in"/>
+            <arg type="s" name="event" direction="in"/>
+            <arg type="s" name="mac_addr" direction="in"/>
+        </method>
 
         <!-- Properties -->
         <!-- Read Only -->
         <property name="State" type="s" access="read"/>
-        <property name="Stations" type="a" access="read"/>
+        <property name="Stations" type="as" access="read"/>
+        <property name="Blocklist" type="as" access="read"/>
         <!-- Read/Write -->
         <property name="SSID" type="s" access="readwrite"/>
         <property name="Band" type="s" access="readwrite"/>
         <property name="Channel" type="i" access="readwrite"/>
         <property name="Security" type="s" access="readwrite"/>
         <property name="Passphrase" type="s" access="readwrite"/>
+        <property name="Hidden" type="b" access="readwrite"/>
 
         <!-- Signals -->
         <signal name="StateChanged">
@@ -38,7 +45,7 @@
             <arg type="a{sv}" name="new_configuration"/>
         </signal>
         <signal name="StationEvent">
-            <arg type="s" name="type"/>
+            <arg type="s" name="event_type"/>
             <arg type="s" name="mac_addr"/>
         </signal>
     </interface>
