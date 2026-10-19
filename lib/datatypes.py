@@ -6,6 +6,8 @@ Custom datatype definitions
 
 import os
 import sys
+import time
+import logging
 import subprocess
 import threading
 from . import (
@@ -18,24 +20,28 @@ class APHost(object):
     def __init__(self, config=None, logger=None):
         self.config = config
         self.logger = logger
-        self.process = None
+        self.processes = {}
         self.state = "not running"
         self.stations = []
         self.blocklist = []
         self.settings = self._settings = {
             "SSID": self.config["AP"]["ssid"],
             "Band": self.config["AP"]["band"],
-            "Channel": int(self.config["AP"]["channel"]),
+            "Channel": self.config.getint("AP", "channel"),
             "Security": self.config["AP"]["security"],
             "Passphrase": self.config["AP"]["passphrase"],
-            "Hidden": bool(self.config["AP"]["hidden"])
+            "Hidden": self.config.getboolean("AP", "hidden")
         }
+        if not os.path.isfile(self.config["HOSTAPD"]["acl_file"]):
+            with open(self.config["HOSTAPD"]["acl_file"], "w"):
+                pass
+            
 
     def _gen_hostapd_config(self, outfile):
         """ Generate the hostapd configuration file
         """
         settings = []
-        hw_mode = "bg" if self.settings["Band"] == "2.4g" else "a"
+        hw_mode = "g" if self.settings["Band"] == "2.4g" else "a"
         ignore_broadcast_ssid = 1 if self.settings["Hidden"] == True else 0
         for setting in [
             f"interface={self.config['HARDWARE']['interface']}",
@@ -49,7 +55,7 @@ class APHost(object):
             f"ignore_broadcast_ssid={ignore_broadcast_ssid}",
             f"ctrl_interface=/var/run/hostapd",
             f"ctrl_interface_group=0",
-            f"macaddr_acl=1",
+            f"macaddr_acl=0",
             f"deny_mac_file={self.config['HOSTAPD']['acl_file']}"
         ]:
             settings.append(setting)
@@ -109,31 +115,93 @@ class APHost(object):
     def _Start(self):
         """ Start the process
         """
-        def _event_monitor(config):
-            """ Event monitor thread
+        def _hostapd_runner(logger, config):
+            """ Runner thread for hostapd
             """
-            subprocess.call([
-                "hostapd_cli",
-                "-a",
-                config["HOSTAPD"]["event_script"]
-            ])
+            logger.info(f"Started hostapd runner thread")
+            sublogger = logging.getLogger("hostapd_runner")
+            slch = logging.StreamHandler()
+            log_level = int(config["LOGGING"]["log_level"])
+            if log_level == -1:
+                log_level = logging.DEBUG
+            elif log_level == 0:
+                log_level = logging.INFO
+            elif log_level == 1:
+                log_level = logging.ERROR
+            slch.setLevel(log_level)
+            slch.setFormatter(logging.Formatter("%(name)s - %(message)s"))
+            sublogger.addHandler(slch)
+            sublogger.info(f"Sublogger initialized for hostapd subprocess")
+            p = subprocess.Popen(
+                [
+                    self.config["HOSTAPD"]["executable"],
+                    "-d",
+                    self.config["HOSTAPD"]["config_file"]
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            self.processes["hostapd"] = p
+            for line in p.stdout:
+                sublogger.info(line.rstrip())
+            retcode = p.wait()
+            if retcode != 0:
+                logger.error(f"The hostapd subprocess has exited with a non-zero return code of: {retcode}")
+            else:
+                logger.info(f"The hostapd subprocess has exited")
+            return None
+            
+        def _hostapd_cli_runner(logger, config):
+            """ Runner thread for hostapd_cli
+            """
+            logger.info(f"Started hostapd_cli runner thread")
+            sublogger = logging.getLogger("hostapd_cli_runner")
+            slch = logging.StreamHandler()
+            log_level = int(config["LOGGING"]["log_level"])
+            if log_level == -1:
+                log_level = logging.DEBUG
+            elif log_level == 0:
+                log_level = logging.INFO
+            elif log_level == 1:
+                log_level = logging.ERROR
+            slch.setLevel(log_level)
+            slch.setFormatter(logging.Formatter("%(name)s - %(message)s"))
+            sublogger.addHandler(slch)
+            sublogger.info(f"Sublogger initialized for hostapd_cli subprocess")
+            p = subprocess.Popen(
+                [
+                    "hostapd_cli",
+                    "-p",
+                    "/var/run/hostapd",
+                    "-i",
+                    config["HARDWARE"]["interface"],
+                    "-a",
+                    config["HOSTAPD"]["event_script"]
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            self.processes["hostapd_cli"] = p
+            for line in p.stdout:
+                sublogger.info(line.rstrip())
+            retcode = p.wait()
+            if retcode != 0:
+                logger.error(f"The hostapd_cli subprocess has exited with a non-zero return code of: {retcode}")
+            else:
+                logger.info(f"The hostapd_cli subprocess has exited")
             return None
         
         if self.state == "running":
             raise exceptions.StateChangeError(f"Process is already running")
         try:
             self._gen_hostapd_config(self.config["HOSTAPD"]["config_file"])
-            self.process = subprocess.Popen(
-                [
-                    self.config["HOSTAPD"]["executable"],
-                    self.config["HOSTAPD"]["config_file"]
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1
-            )
-            threading.Thread(target=_event_monitor, args=(self.config,), daemon=True).start()
+            threading.Thread(target=_hostapd_runner, args=(self.logger, self.config), daemon=True).start()
+            time.sleep(0.5)
+            threading.Thread(target=_hostapd_cli_runner, args=(self.logger, self.config), daemon=True).start()
         except Exception as err_msg:
             raise err_msg
         self.state = "running"
@@ -145,12 +213,15 @@ class APHost(object):
         if self.state == "not running":
             raise exceptions.StateChangeError(f"Process is not running")
         try:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+            for process_name in self.processes.keys():
+                self.logger.debug(f"Stopping subprocess: {process_name}")
+                process = self.processes[process_name]
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
         except Exception as err_msg:
             raise err_msg
         self.state = "not running"
