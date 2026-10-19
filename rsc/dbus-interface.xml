@@ -13,8 +13,7 @@
         </method>
         <method name="EventScriptCallback">
             <arg type="s" name="interface" direction="in"/>
-            <arg type="s" name="event" direction="in"/>
-            <arg type="s" name="mac_addr" direction="in"/>
+            <arg type="s" name="payload" direction="in"/>
         </method>
 
         <!-- Properties -->
@@ -47,6 +46,9 @@
         <signal name="StationEvent">
             <arg type="s" name="event_type"/>
             <arg type="s" name="mac_addr"/>
+        </signal>
+        <signal name="SubsystemEvent">
+            <arg type="s" name="event_type"/>
         </signal>
     </interface>
 </node>

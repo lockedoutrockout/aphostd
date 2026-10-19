@@ -23,8 +23,10 @@ class APHost(object):
         self.processes = {}
         self.state = "not running"
         self.stations = []
+        self.connected_stations = []
+        self.disconnected_stations = []
         self.blocklist = []
-        self.settings = self._settings = {
+        self.settings = {
             "SSID": self.config["AP"]["ssid"],
             "Band": self.config["AP"]["band"],
             "Channel": self.config.getint("AP", "channel"),
@@ -32,6 +34,15 @@ class APHost(object):
             "Passphrase": self.config["AP"]["passphrase"],
             "Hidden": self.config.getboolean("AP", "hidden")
         }
+        self._settings = {
+            "SSID": self.config["AP"]["ssid"],
+            "Band": self.config["AP"]["band"],
+            "Channel": self.config.getint("AP", "channel"),
+            "Security": self.config["AP"]["security"],
+            "Passphrase": self.config["AP"]["passphrase"],
+            "Hidden": self.config.getboolean("AP", "hidden")
+        }
+        
         if not os.path.isfile(self.config["HOSTAPD"]["acl_file"]):
             with open(self.config["HOSTAPD"]["acl_file"], "w"):
                 pass
@@ -104,12 +115,17 @@ class APHost(object):
     def _reload_hostapd(self):
         """ Reload hostapd
         """
-        subprocess.call([
+        p = subprocess.Popen([
             "hostapd_cli",
+            "-p",
+            "/var/run/hostapd",
             "-i",
             self.config["HARDWARE"]["interface"],
             "reload"
         ])
+        retcode = p.wait()
+        if retcode != 0:
+            raise exceptions.SyscallNonZeroRetcodeError(f"Call to hostapd_cli to reload hostapd returned non-zero retcode: {retcode}")
         return None
 
     def _Start(self):
@@ -196,12 +212,18 @@ class APHost(object):
             return None
         
         if self.state == "running":
-            raise exceptions.StateChangeError(f"Process is already running")
+            raise exceptions.StateChangeError(f"AP host is already running")
         try:
+            self.state = "starting"
             self._gen_hostapd_config(self.config["HOSTAPD"]["config_file"])
             threading.Thread(target=_hostapd_runner, args=(self.logger, self.config), daemon=True).start()
             time.sleep(0.5)
+            if self.processes["hostapd"].returncode:
+                raise exceptions.ChildProcessExitedError(f"hostapd exited with return code of: {self.processes['hostapd'].returncode}")
             threading.Thread(target=_hostapd_cli_runner, args=(self.logger, self.config), daemon=True).start()
+            time.sleep(0.5)
+            if self.processes["hostapd_cli"].returncode:
+                raise exceptions.ChildProcessExitedError(f"hostapd_cli exited prematurely with return code of: {self.processes['hostapd_cli'].returncode}")
         except Exception as err_msg:
             raise err_msg
         self.state = "running"
@@ -211,7 +233,7 @@ class APHost(object):
         """ Stop the process
         """
         if self.state == "not running":
-            raise exceptions.StateChangeError(f"Process is not running")
+            raise exceptions.StateChangeError(f"AP host is not running")
         try:
             for process_name in self.processes.keys():
                 self.logger.debug(f"Stopping subprocess: {process_name}")
@@ -222,6 +244,7 @@ class APHost(object):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
+                self.processes[process_name] = None
         except Exception as err_msg:
             raise err_msg
         self.state = "not running"
@@ -243,8 +266,11 @@ class APHost(object):
         """ Apply new configuration settings
         """
         self.settings = self._settings
-        self._gen_hostapd_config(self.config["HOSTAPD"]["config_file"])
-        self._reload_hostapd()
+        try:
+            self._gen_hostapd_config(self.config["HOSTAPD"]["config_file"])
+            self._reload_hostapd()
+        except Exception as err_msg:
+            raise err_msg
         return None
 
     def _BlockStation(self, mac_addr):
@@ -282,12 +308,20 @@ class APHost(object):
                 return (True, ("new-station-connected", mac_addr))
             else:
                 return (True, ("known-station-connected", mac_addr))
+            if mac_addr in self.disconnected_stations:
+                self.disconnected_stations.remove(mac_addr)
+            if mac_addr not in self.connected_stations:
+                self.connected_stations.append(mac_addr)
         elif event == "AP-STA-DISCONNECTED":
             if mac_addr not in self.stations:
                 self.stations.append(mac_addr)
                 return (True, ("new-station-disconnected", mac_addr))
             else:
                 return (True, ("known-station-disconnected", mac_addr))
+            if mac_addr in self.connected_stations:
+                self.connected_stations.remove(mac_addr)
+            if mac_addr not in self.disconnected_stations:
+                self.disconnected_stations.append(mac_addr)
         elif event == "SIGHUP":
             return (True, ("hostapd-reloaded", None))
         else:

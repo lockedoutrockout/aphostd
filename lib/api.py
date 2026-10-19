@@ -41,6 +41,8 @@ INTERFACE_XML = """
         <!-- Read Only -->
         <property name="State" type="s" access="read"/>
         <property name="Stations" type="as" access="read"/>
+        <property name="ConnectedStations" type="as" access="read"/>
+        <property name="DisconnectedStations" type="as" access="read"/>
         <property name="Blocklist" type="as" access="read"/>
         <!-- Read/Write -->
         <property name="SSID" type="s" access="readwrite"/>
@@ -75,6 +77,14 @@ INTERFACE_XML = """
 </node>
 """
 
+def dict_to_dbus_asv(d):
+    """ Sanatizes a dictionary for use as an array of string variants in DBus
+    """
+    for k in d.keys():
+        s = str(d[k])
+        d[k] = s
+    return d
+
 class APHostService(datatypes.APHost):
     """ DBus interface object
     """
@@ -104,6 +114,7 @@ class APHostService(datatypes.APHost):
             self.StateChanged(_old, self.state)
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to Start: {err_msg}")
+            raise exceptions.StateChangeError(f"An error has prevented the AP host from starting") from err_msg
         return None
 
     def Stop(self):
@@ -116,6 +127,7 @@ class APHostService(datatypes.APHost):
             self.StateChanged(_old, self.state)
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to Stop: {err_msg}")
+            raise exceptions.StateChangeError(f"An error has prevented the AP host from stopping") from err_msg
         return None
 
     def Restart(self):
@@ -128,6 +140,7 @@ class APHostService(datatypes.APHost):
             self.StateChanged(_old, self.state)
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to Restart: {err_msg}")
+            raise exceptions.StateChangeError(f"An error has prevented the AP host from restarting") from err_msg
         return None
 
     def ApplyConfiguration(self):
@@ -135,11 +148,12 @@ class APHostService(datatypes.APHost):
         """
         self.logger.info(f"DBus API got call to ApplyConfiguration")
         try:
-            _old = self.settings
+            _old = dict_to_dbus_asv(self.settings)
             self._ApplyConfiguration()
-            self.ConfigurationApplied(_old, self.settings)
+            self.ConfigurationApplied(_old, dict_to_dbus_asv(self.settings))
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to ApplyConfiguration: {err_msg}")
+            raise exceptions.ConfigurationError(f"An error has occurred while applying the new configuration settings") from err_msg
         return None
 
     def BlockStation(self, mac_addr):
@@ -151,6 +165,7 @@ class APHostService(datatypes.APHost):
             self.StationEvent("station-blocked", mac_addr)
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to BlockStation: {err_msg}")
+            raise exceptions.AccessControlError(f"Encountered an error while blocking station with MAC address {mac_addr}") from err_msg
 
     def UnblockStation(self, mac_addr):
         """ Unblock a station
@@ -161,6 +176,7 @@ class APHostService(datatypes.APHost):
             self.StationEvent("station-unblocked", mac_addr)
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to UnblockStation: {err_msg}")
+            raise exceptions.AccessControlError(f"Encountered an error while unblocking station with MAC address {mac_addr}") from err_msg
 
     def EventScriptCallback(self, interface, event, mac_addr):
         """ Callback method for receiving hostapd events from hostapd_cli via the
@@ -184,6 +200,7 @@ class APHostService(datatypes.APHost):
                     
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception during call to EventScriptCallback: {err_msg}")
+            raise exceptions.EventScriptError(f"The event script callback method has encountered an error") from err_msg
         return None
         
 
@@ -196,6 +213,14 @@ class APHostService(datatypes.APHost):
     @property
     def Stations(self):
         return self.stations
+
+    @property
+    def ConnectedStations(self):
+        return self.connected_stations
+
+    @property
+    def DisconnectedStations(self):
+        return self.disconnected_stations
 
     @property
     def Blocklist(self):
@@ -234,10 +259,10 @@ class APHostService(datatypes.APHost):
     @Channel.setter
     def Channel(self, value):
         self.logger.info(f"Readwrite property Channel set to {value} from {self._settings["Channel"]}")
-        _old = self._settings["Channel"]
+        _old = str(self._settings["Channel"])
         try:
             self._settings["Channel"] = int(value)
-            self.ConfigurationChanged("Channel", _old, self._settings["Channel"])
+            self.ConfigurationChanged("Channel", _old, str(self._settings["Channel"]))
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Channel from: {_old} to: {value}")
 
@@ -273,10 +298,10 @@ class APHostService(datatypes.APHost):
     @Hidden.setter
     def Hidden(self, value):
         self.logger.info(f"Readwrite property Hidden set to {value} from {self._settings["Hidden"]}")
-        _old = self._settings["Hidden"]
+        _old = str(self._settings["Hidden"])
         try:
             self._settings["Hidden"] = value
-            self.ConfigurationChanged("Hidden", _old, self._settings["Hidden"])
+            self.ConfigurationChanged("Hidden", _old, str(self._settings["Hidden"]))
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Hidden from: {_old} to: {value}")
 
