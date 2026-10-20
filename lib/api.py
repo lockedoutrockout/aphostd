@@ -239,6 +239,7 @@ class APHostService(datatypes.APHost):
             self.ConfigurationChanged("SSID", _old, self._settings["SSID"])
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property SSID from: {_old} to: {value}")
+            raise exceptions.ConfigurationError(f"Failed to update value of read/write property: SSID")
 
     @property
     def Band(self):
@@ -252,6 +253,7 @@ class APHostService(datatypes.APHost):
             self.ConfigurationChanged("Band", _old, self._settings["Band"])
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Band from: {_old} to: {value}")
+            raise exceptions.ConfigurationError(f"Failed to update value of read/write property: Band")
 
     @property
     def Channel(self):
@@ -265,6 +267,7 @@ class APHostService(datatypes.APHost):
             self.ConfigurationChanged("Channel", _old, str(self._settings["Channel"]))
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Channel from: {_old} to: {value}")
+            raise exceptions.ConfigurationError(f"Failed to update value of read/write property: Channel")
 
     @property
     def Security(self):
@@ -278,6 +281,7 @@ class APHostService(datatypes.APHost):
             self.ConfigurationChanged("Security", _old, self._settings["Security"])
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Security from: {_old} to: {value}")
+            raise exceptions.ConfigurationError(f"Failed to update value of read/write property: Security")
 
     @property
     def Passphrase(self):
@@ -291,6 +295,7 @@ class APHostService(datatypes.APHost):
             self.ConfigurationChanged("Passphrase", _old, self._settings["Passphrase"])
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Passphrase from: {_old} to: {value}")
+            raise exceptions.ConfigurationError(f"Failed to update value of read/write property: Passphrase")
 
     @property
     def Hidden(self):
@@ -304,7 +309,7 @@ class APHostService(datatypes.APHost):
             self.ConfigurationChanged("Hidden", _old, str(self._settings["Hidden"]))
         except Exception as err_msg:
             self.logger.error(f"DBus API encountered an exception while setting value of readwrite property Hidden from: {_old} to: {value}")
-
+            raise exceptions.ConfigurationError(f"Failed to update value of read/write property: Hidden")
 
 def init_dbus_api(name=BUS_NAME, path=OBJECT_PATH, xml=INTERFACE_XML, logger=None):
     """ Launch the DBus interface

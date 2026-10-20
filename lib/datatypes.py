@@ -225,6 +225,7 @@ class APHost(object):
             if self.processes["hostapd_cli"].returncode:
                 raise exceptions.ChildProcessExitedError(f"hostapd_cli exited prematurely with return code of: {self.processes['hostapd_cli'].returncode}")
         except Exception as err_msg:
+            self.state = "startup failed"
             raise err_msg
         self.state = "running"
         return None
@@ -246,6 +247,7 @@ class APHost(object):
                     process.wait()
                 self.processes[process_name] = None
         except Exception as err_msg:
+            self.state = "shutdown failed"
             raise err_msg
         self.state = "not running"
         return None
@@ -259,6 +261,7 @@ class APHost(object):
             self._Stop()
             self._Start()
         except Exception as err_msg:
+            self.state = "restart failed"
             raise err_msg
         return None
 
@@ -270,6 +273,7 @@ class APHost(object):
             self._gen_hostapd_config(self.config["HOSTAPD"]["config_file"])
             self._reload_hostapd()
         except Exception as err_msg:
+            self.state = "apply configuration failed"
             raise err_msg
         return None
 
